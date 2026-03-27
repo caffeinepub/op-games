@@ -5,13 +5,16 @@ import {
   Crosshair,
   Gamepad2,
   Menu,
+  QrCode,
   Shield,
+  Trash2,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { type Game, Status } from "./backend.d";
 import { useGetGames } from "./hooks/useQueries";
+import { useQRScanner } from "./qr-code/useQRScanner";
 
 const GAME_IMAGES: Record<string, string> = {
   "Shadow Strike OP": "/assets/generated/shadow-strike-op.dim_400x500.jpg",
@@ -338,6 +341,299 @@ function GameCardSkeleton() {
   );
 }
 
+function QRScannerModal({ onClose }: { onClose: () => void }) {
+  const scanner = useQRScanner({ facingMode: "environment" });
+
+  const handleToggle = async () => {
+    if (scanner.isScanning) {
+      await scanner.stopScanning();
+    } else {
+      await scanner.startScanning();
+    }
+  };
+
+  const handleClose = async () => {
+    if (scanner.isScanning) {
+      await scanner.stopScanning();
+    }
+    onClose();
+  };
+
+  const formatTime = (ts: number) => {
+    return new Date(ts).toLocaleTimeString();
+  };
+
+  return (
+    <motion.div
+      data-ocid="scanner.modal"
+      className="fixed inset-0 z-[100] flex flex-col"
+      style={{ background: "rgba(4,4,12,0.97)", backdropFilter: "blur(8px)" }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-4"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+      >
+        <div className="flex items-center gap-3">
+          <QrCode
+            className="w-6 h-6"
+            style={{ color: "oklch(0.75 0.18 195)" }}
+          />
+          <h2
+            className="font-orbitron font-black tracking-widest"
+            style={{ color: "oklch(0.75 0.18 195)", fontSize: "1.1rem" }}
+          >
+            QR SCANNER
+          </h2>
+        </div>
+        <button
+          type="button"
+          data-ocid="scanner.close_button"
+          onClick={handleClose}
+          className="p-2 rounded-lg transition-colors"
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "rgba(255,255,255,0.7)",
+            cursor: "pointer",
+          }}
+          aria-label="Close scanner"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row gap-6 p-5">
+        {/* Camera Feed */}
+        <div className="flex-1 flex flex-col gap-4">
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              aspectRatio: "4/3",
+              minHeight: "200px",
+            }}
+          >
+            <video
+              ref={scanner.videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+              style={{ display: scanner.isScanning ? "block" : "none" }}
+            />
+            <canvas ref={scanner.canvasRef} style={{ display: "none" }} />
+
+            {/* Idle state */}
+            {!scanner.isScanning && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+                <div
+                  className="rounded-full p-6"
+                  style={{
+                    background: "oklch(0.75 0.18 195 / 0.1)",
+                    border: "2px solid oklch(0.75 0.18 195 / 0.3)",
+                  }}
+                >
+                  <QrCode
+                    className="w-12 h-12"
+                    style={{ color: "oklch(0.75 0.18 195 / 0.5)" }}
+                  />
+                </div>
+                <p
+                  className="font-orbitron text-xs tracking-wider text-center px-4"
+                  style={{ color: "rgba(255,255,255,0.35)" }}
+                >
+                  Camera inactive — press START to scan
+                </p>
+              </div>
+            )}
+
+            {/* Scanning overlay */}
+            {scanner.isScanning && (
+              <div className="absolute inset-0 pointer-events-none">
+                {/* Corner brackets */}
+                {[
+                  { pos: "top-4 left-4", border: "3px 0 0 3px" },
+                  { pos: "top-4 right-4", border: "3px 3px 0 0" },
+                  { pos: "bottom-4 left-4", border: "0 0 3px 3px" },
+                  { pos: "bottom-4 right-4", border: "0 3px 3px 0" },
+                ].map(({ pos, border }) => (
+                  <div
+                    key={pos}
+                    className={`absolute w-8 h-8 ${pos}`}
+                    style={{
+                      borderColor: "oklch(0.75 0.18 195)",
+                      borderStyle: "solid",
+                      borderWidth: border,
+                      boxShadow: "0 0 8px oklch(0.75 0.18 195 / 0.6)",
+                    }}
+                  />
+                ))}
+                {/* Scan line */}
+                <motion.div
+                  className="absolute left-4 right-4"
+                  style={{
+                    height: "2px",
+                    background:
+                      "linear-gradient(90deg, transparent, oklch(0.75 0.18 195), transparent)",
+                    boxShadow: "0 0 8px oklch(0.75 0.18 195)",
+                  }}
+                  animate={{ top: ["15%", "85%", "15%"] }}
+                  transition={{
+                    duration: 2.5,
+                    repeat: Number.POSITIVE_INFINITY,
+                    ease: "linear",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Error */}
+            {scanner.error && (
+              <div
+                data-ocid="scanner.error_state"
+                className="absolute inset-0 flex items-center justify-center p-4"
+              >
+                <p
+                  className="font-orbitron text-xs text-center tracking-wide"
+                  style={{ color: "oklch(0.7 0.22 25)" }}
+                >
+                  {scanner.error?.message ?? String(scanner.error)}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Controls */}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              data-ocid="scanner.primary_button"
+              onClick={handleToggle}
+              className="flex-1 font-orbitron font-bold text-sm py-3 rounded-xl tracking-wider transition-all duration-200"
+              style={{
+                background: scanner.isScanning
+                  ? "oklch(0.65 0.28 290 / 0.15)"
+                  : "oklch(0.75 0.18 195)",
+                border: scanner.isScanning
+                  ? "1px solid oklch(0.65 0.28 290)"
+                  : "none",
+                color: scanner.isScanning ? "oklch(0.65 0.28 290)" : "#080810",
+                cursor: "pointer",
+                boxShadow: scanner.isScanning
+                  ? "none"
+                  : "0 0 20px oklch(0.75 0.18 195 / 0.4)",
+              }}
+            >
+              {scanner.isScanning ? "⏹ STOP" : "▶ START SCAN"}
+            </button>
+
+            {scanner.qrResults.length > 0 && (
+              <button
+                type="button"
+                data-ocid="scanner.delete_button"
+                onClick={scanner.clearResults}
+                className="p-3 rounded-xl transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "rgba(255,255,255,0.5)",
+                  cursor: "pointer",
+                }}
+                aria-label="Clear results"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Results Panel */}
+        <div className="flex flex-col gap-3 lg:w-80">
+          <h3
+            className="font-orbitron font-bold text-xs tracking-widest"
+            style={{ color: "rgba(255,255,255,0.4)" }}
+          >
+            SCAN RESULTS
+          </h3>
+
+          {scanner.qrResults.length === 0 ? (
+            <div
+              data-ocid="scanner.empty_state"
+              className="flex-1 flex flex-col items-center justify-center py-10 rounded-xl gap-3"
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <QrCode
+                className="w-8 h-8"
+                style={{ color: "rgba(255,255,255,0.15)" }}
+              />
+              <p
+                className="font-orbitron text-xs tracking-wider text-center"
+                style={{ color: "rgba(255,255,255,0.25)" }}
+              >
+                No codes scanned yet
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 max-h-96 lg:max-h-none overflow-y-auto">
+              {scanner.qrResults.map((result, i) => (
+                <motion.div
+                  key={result.timestamp}
+                  data-ocid={`scanner.item.${i + 1}`}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="rounded-xl p-4 flex flex-col gap-2"
+                  style={{
+                    background:
+                      i === 0
+                        ? "oklch(0.75 0.18 195 / 0.08)"
+                        : "rgba(255,255,255,0.03)",
+                    border:
+                      i === 0
+                        ? "1px solid oklch(0.75 0.18 195 / 0.3)"
+                        : "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  {i === 0 && (
+                    <span
+                      className="font-orbitron text-xs font-bold tracking-widest"
+                      style={{ color: "oklch(0.75 0.18 195)" }}
+                    >
+                      LATEST
+                    </span>
+                  )}
+                  <p
+                    className="text-sm break-all leading-relaxed"
+                    style={{ color: "rgba(255,255,255,0.85)" }}
+                  >
+                    {result.data}
+                  </p>
+                  <span
+                    className="font-orbitron text-xs"
+                    style={{ color: "rgba(255,255,255,0.3)" }}
+                  >
+                    {formatTime(result.timestamp)}
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 const NAV_LINKS = [
   { label: "Games", target: "games" },
   { label: "About", target: "about" },
@@ -382,6 +678,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState<FilterTab>("all");
   const [scrolled, setScrolled] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const { data: gamesData, isLoading } = useGetGames();
   const games = gamesData && gamesData.length > 0 ? gamesData : FALLBACK_GAMES;
@@ -391,6 +688,14 @@ export default function App() {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Prevent body scroll when scanner is open
+  useEffect(() => {
+    document.body.style.overflow = scannerOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [scannerOpen]);
 
   const filteredGames = games.filter((g) => {
     if (filter === "action") return !isSurvivalGame(g.genre);
@@ -405,6 +710,13 @@ export default function App() {
 
   return (
     <div style={{ background: "#080810", minHeight: "100vh" }}>
+      {/* ========== QR SCANNER MODAL ========== */}
+      <AnimatePresence>
+        {scannerOpen && (
+          <QRScannerModal onClose={() => setScannerOpen(false)} />
+        )}
+      </AnimatePresence>
+
       {/* ========== NAVBAR ========== */}
       <header
         data-ocid="nav.panel"
@@ -431,7 +743,7 @@ export default function App() {
             OP GAMES
           </button>
 
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden md:flex items-center gap-6">
             {NAV_LINKS.map(({ label, target }) => (
               <button
                 type="button"
@@ -457,6 +769,31 @@ export default function App() {
                 {label}
               </button>
             ))}
+            {/* Scanner button */}
+            <button
+              type="button"
+              data-ocid="scanner.open_modal_button"
+              onClick={() => setScannerOpen(true)}
+              className="flex items-center gap-2 font-orbitron font-bold text-xs tracking-wider px-4 py-2 rounded-lg transition-all duration-200"
+              style={{
+                background: "oklch(0.75 0.18 195 / 0.1)",
+                border: "1px solid oklch(0.75 0.18 195 / 0.4)",
+                color: "oklch(0.75 0.18 195)",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "oklch(0.75 0.18 195 / 0.2)";
+                e.currentTarget.style.boxShadow =
+                  "0 0 12px oklch(0.75 0.18 195 / 0.3)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "oklch(0.75 0.18 195 / 0.1)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <QrCode className="w-4 h-4" />
+              SCANNER
+            </button>
           </nav>
 
           <button
@@ -512,6 +849,25 @@ export default function App() {
                     {label}
                   </button>
                 ))}
+                {/* Scanner button in mobile menu */}
+                <button
+                  type="button"
+                  data-ocid="scanner.open_modal_button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setScannerOpen(true);
+                  }}
+                  className="flex items-center gap-2 font-orbitron font-semibold text-sm tracking-wider py-3 px-4 rounded-lg text-left transition-colors"
+                  style={{
+                    color: "oklch(0.75 0.18 195)",
+                    background: "oklch(0.75 0.18 195 / 0.07)",
+                    border: "1px solid oklch(0.75 0.18 195 / 0.2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <QrCode className="w-4 h-4" />
+                  Scanner
+                </button>
               </nav>
             </motion.div>
           )}
